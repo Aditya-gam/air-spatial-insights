@@ -35,6 +35,8 @@ def spatial_join_and_aggregate(
       - Ensures that the monitors GeoDataFrame is in the same CRS as the tracts.
       - Performs a spatial join using an 'intersects' predicate.
       - Groups the joined data by GEOID and computes the mean of the specified column.
+      - If the specified column is not found in the joined data, aggregation fails gracefully,
+        resulting in NaN values for all tracts.
       - Merges the aggregated pollutant values back to the original census tracts.
 
     Parameters
@@ -50,7 +52,7 @@ def spatial_join_and_aggregate(
     -------
     gpd.GeoDataFrame
         A GeoDataFrame of census tracts with a new column "Ozone" representing the aggregated
-        mean pollutant measurement.
+        mean pollutant measurement. If the specified column is invalid, "Ozone" will contain NaNs.
     """
     # Ensure both GeoDataFrames share the same CRS.
     if ozone_gdf.crs != tracts.crs:
@@ -62,7 +64,15 @@ def spatial_join_and_aggregate(
     logger.info(f"Spatial join complete: {len(joined)} records obtained.")
 
     # Group by GEOID and compute mean of the specified column.
-    aggregated = joined.groupby("GEOID")[col].mean().reset_index()
+    if col in joined.columns:
+        aggregated = joined.groupby("GEOID")[col].mean().reset_index()
+    else:
+        logger.warning(
+            f"Column '{col}' not found in joined data. Aggregated values will be set to NaN.")
+        # Create an aggregated DataFrame with NaN values for each tract.
+        aggregated = pd.DataFrame(
+            {"GEOID": tracts["GEOID"], col: [float("nan")] * len(tracts)})
+
     aggregated.rename(columns={col: "Ozone"}, inplace=True)
     logger.info("Aggregation of pollutant data complete.")
 
@@ -244,7 +254,7 @@ def compute_geometry_stats(tracts_gdf: gpd.GeoDataFrame) -> Dict[str, float]:
     min_vertices = tracts_gdf["num_vertices"].min()
     max_vertices = tracts_gdf["num_vertices"].max()
 
-    # Reproject to EPSG:3310 for accurate area calculations
+    # Reproject to EPSG:3310 for accurate area calculations.
     tracts_proj = tracts_gdf.to_crs(epsg=3310)
     areas_sq_km = tracts_proj.geometry.area / 1e6
     min_area = areas_sq_km.min()
