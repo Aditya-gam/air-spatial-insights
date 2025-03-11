@@ -256,6 +256,17 @@ def compute_geometry_stats(tracts_gdf: gpd.GeoDataFrame) -> Dict[str, float]:
             - Minimum and maximum vertices per feature,
             - Minimum, maximum, and average area (in square kilometers).
     """
+    if tracts_gdf.empty:
+        return {
+            "num_features": 0,
+            "avg_vertices": np.nan,
+            "min_vertices": np.nan,
+            "max_vertices": np.nan,
+            "min_area_sq_km": np.nan,
+            "max_area_sq_km": np.nan,
+            "avg_area_sq_km": np.nan,
+        }
+
     num_features = len(tracts_gdf)
 
     def count_vertices(geom) -> int:
@@ -266,14 +277,16 @@ def compute_geometry_stats(tracts_gdf: gpd.GeoDataFrame) -> Dict[str, float]:
         else:
             return 0
 
-    tracts_gdf["num_vertices"] = tracts_gdf.geometry.apply(count_vertices)
-    avg_vertices = tracts_gdf["num_vertices"].mean()
-    min_vertices = tracts_gdf["num_vertices"].min()
-    max_vertices = tracts_gdf["num_vertices"].max()
+    # Force the output of count_vertices to be numeric
+    vertices = tracts_gdf.geometry.apply(count_vertices).astype(float)
+    avg_vertices = vertices.mean()
+    min_vertices = vertices.min()
+    max_vertices = vertices.max()
 
     # Reproject to EPSG:3310 for accurate area calculations.
     tracts_proj = tracts_gdf.to_crs(epsg=3310)
     areas_sq_km = tracts_proj.geometry.area / 1e6
+    # For an empty areas series, min/max/mean will naturally be NaN
     min_area = areas_sq_km.min()
     max_area = areas_sq_km.max()
     avg_area = areas_sq_km.mean()
