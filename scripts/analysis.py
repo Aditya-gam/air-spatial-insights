@@ -94,6 +94,9 @@ def dbscan_clustering(
     The function extracts the (x, y) coordinates and the specified numeric column into a feature matrix,
     runs DBSCAN clustering, and adds a new column 'cluster' to the input GeoDataFrame.
 
+    If eps is less than or equal to zero, the function assigns all points as noise (-1)
+    to avoid violating DBSCAN parameter constraints.
+
     Parameters
     ----------
     monitors_gdf : gpd.GeoDataFrame
@@ -117,6 +120,14 @@ def dbscan_clustering(
     # Combine the coordinates and measurement into one feature matrix.
     X = np.hstack([coords, values])
     logger.info(f"Constructed feature matrix for DBSCAN with shape: {X.shape}")
+
+    # If eps is less than or equal to zero, assign all points as noise.
+    if eps <= 0.0:
+        logger.warning(
+            "eps <= 0 provided. Assigning all points as noise (-1).")
+        monitors_clustered = monitors_gdf.copy()
+        monitors_clustered["cluster"] = -1
+        return monitors_clustered
 
     # Apply DBSCAN.
     dbscan = DBSCAN(eps=eps, min_samples=min_samples)
