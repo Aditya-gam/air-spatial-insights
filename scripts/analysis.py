@@ -113,10 +113,16 @@ def dbscan_clustering(
     gpd.GeoDataFrame
         The input GeoDataFrame with an additional column 'cluster' containing DBSCAN cluster labels.
     """
-    # Extract spatial coordinates and the measurement column.
+    # Extract spatial coordinates.
     coords = np.array(
         list(zip(monitors_gdf.geometry.x, monitors_gdf.geometry.y)))
-    values = monitors_gdf[col].values.reshape(-1, 1)
+    # Attempt to extract the measurement column; if not found, raise AttributeError.
+    try:
+        values = monitors_gdf[col].values.reshape(-1, 1)
+    except KeyError as e:
+        raise AttributeError(
+            f"Column '{col}' not found in monitors GeoDataFrame.") from e
+
     # Combine the coordinates and measurement into one feature matrix.
     X = np.hstack([coords, values])
     logger.info(f"Constructed feature matrix for DBSCAN with shape: {X.shape}")
