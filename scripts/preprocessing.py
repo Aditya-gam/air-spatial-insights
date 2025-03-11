@@ -14,7 +14,7 @@ import pandas as pd
 import geopandas as gpd
 from scipy.stats import boxcox
 
-from data_loader import load_census_tracts, load_monitors
+from scripts.data_loader import load_census_tracts, load_monitors
 
 logger = logging.getLogger(__name__)
 

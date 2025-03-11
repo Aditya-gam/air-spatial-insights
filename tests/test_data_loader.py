@@ -6,15 +6,13 @@ It tests load_census_tracts() and load_monitors() using valid input files as wel
 as edge and error cases. Test files are assumed to be created in 'data/test_data'
 by the create_test_data.py script.
 """
-from scripts.data_loader import load_census_tracts, load_monitors
-from shapely.geometry import Point
-import geopandas as gpd
-import pandas as pd
 import pytest
 import os
 import sys
-sys.path.insert(0, os.path.abspath(
-    os.path.join(os.path.dirname(__file__), '..')))
+import pandas as pd
+import geopandas as gpd
+from shapely.geometry import Point
+from scripts.data_loader import load_census_tracts, load_monitors
 
 
 # Define the directory for test data (created by create_test_data.py)
