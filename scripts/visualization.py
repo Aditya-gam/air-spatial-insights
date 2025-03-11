@@ -82,9 +82,22 @@ def plot_choropleth(
     minx, miny, maxx, maxy = tracts_gdf.total_bounds
     ax.set_xlim(minx, maxx)
     ax.set_ylim(miny, maxy)
+
+    # Add a custom legend entry for missing data if missing_kwds includes a label.
+    if missing_kwds is not None and "label" in missing_kwds:
+        missing_patch = mpatches.Patch(color=missing_kwds.get("color", "lightgrey"),
+                                       edgecolor=missing_kwds.get(
+                                           "edgecolor", "black"),
+                                       hatch=missing_kwds.get("hatch", ""),
+                                       label=missing_kwds["label"])
+        handles, labels = ax.get_legend_handles_labels()
+        if missing_patch.get_label() not in labels:
+            handles.append(missing_patch)
+            labels.append(missing_patch.get_label())
+        ax.legend(handles=handles, labels=labels, loc="best", fontsize=12)
+
     logger.info(
         f"Choropleth map for column '{col}' plotted with {len(tracts_gdf)} tracts.")
-
     return ax
 
 
