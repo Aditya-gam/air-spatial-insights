@@ -199,7 +199,8 @@ def moran_global_local(
     logger.info(
         f"Largest connected component label: {largest_component} with {comp_series.value_counts()[largest_component]} tracts.")
     mask = comp_series == largest_component
-    tracts_largest = tracts_gdf.iloc[mask].copy()
+    # Use mask.values to convert the boolean Series to a NumPy array for iloc indexing.
+    tracts_largest = tracts_gdf.iloc[mask.values].copy()
     w = libpysal.weights.Queen.from_dataframe(tracts_largest, use_index=False)
     w.transform = "R"
 
