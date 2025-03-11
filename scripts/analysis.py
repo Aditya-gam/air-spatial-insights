@@ -8,6 +8,7 @@ and basic geometry statistics for census tracts.
 """
 
 import logging
+import warnings
 from typing import Tuple, Dict, Any
 
 import numpy as np
@@ -178,8 +179,11 @@ def moran_global_local(
          - Global Moran's I p-value (float) (or NaN),
          - A Pandas Series of cluster labels ("LISA_cluster") for each tract in the input.
     """
-    # Compute weights matrix on the full dataset (do not drop islands)
-    w = libpysal.weights.Queen.from_dataframe(tracts_gdf, use_index=False)
+    # Suppress the user warning about disconnected weights.
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore", message="The weights matrix is not fully connected")
+        w = libpysal.weights.Queen.from_dataframe(tracts_gdf, use_index=False)
     w.transform = "R"
     logger.info("Constructed Queen contiguity spatial weights.")
 
@@ -193,10 +197,14 @@ def moran_global_local(
         if len(comp_idx) >= 3:
             comp_gdf = tracts_gdf.loc[comp_idx].copy()
             y = comp_gdf[col].values
-            w_comp = libpysal.weights.Queen.from_dataframe(
-                comp_gdf, use_index=False)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                w_comp = libpysal.weights.Queen.from_dataframe(
+                    comp_gdf, use_index=False)
             w_comp.transform = "R"
-            moran_local = Moran_Local(y, w_comp)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                moran_local = Moran_Local(y, w_comp)
             comp_clusters = []
             for i, val in enumerate(y):
                 if moran_local.p_sim[i] >= 0.05:
@@ -225,10 +233,14 @@ def moran_global_local(
         comp_idx = comp_labels[comp_labels == largest_comp].index
         comp_gdf = tracts_gdf.loc[comp_idx].copy()
         y = comp_gdf[col].values
-        w_comp = libpysal.weights.Queen.from_dataframe(
-            comp_gdf, use_index=False)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            w_comp = libpysal.weights.Queen.from_dataframe(
+                comp_gdf, use_index=False)
         w_comp.transform = "R"
-        moran_obj = Moran(y, w_comp)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            moran_obj = Moran(y, w_comp)
         global_I = moran_obj.I
         p_val = moran_obj.p_sim
     else:
@@ -277,7 +289,7 @@ def compute_geometry_stats(tracts_gdf: gpd.GeoDataFrame) -> Dict[str, float]:
         else:
             return 0
 
-    # Force the output of count_vertices to be numeric
+    # Force the output of count_vertices to be numeric.
     vertices = tracts_gdf.geometry.apply(count_vertices).astype(float)
     avg_vertices = vertices.mean()
     min_vertices = vertices.min()
@@ -286,7 +298,6 @@ def compute_geometry_stats(tracts_gdf: gpd.GeoDataFrame) -> Dict[str, float]:
     # Reproject to EPSG:3310 for accurate area calculations.
     tracts_proj = tracts_gdf.to_crs(epsg=3310)
     areas_sq_km = tracts_proj.geometry.area / 1e6
-    # For an empty areas series, min/max/mean will naturally be NaN
     min_area = areas_sq_km.min()
     max_area = areas_sq_km.max()
     avg_area = areas_sq_km.mean()
