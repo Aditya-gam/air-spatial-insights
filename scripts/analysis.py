@@ -155,13 +155,13 @@ def moran_global_local(
     Compute Global and Local Moran's I for a pollutant in the census tracts and classify clusters.
 
     This function:
-      - Constructs a Queen contiguity spatial weights matrix.
-      - Removes islands (tracts with no neighbors) and selects the largest connected component.
-      - Computes Global Moran's I and its p-value.
-      - Computes Local Moran's I and p-values.
-      - Classifies each tract based on its value and spatial lag into categories:
-        "High-High", "Low-Low", "High-Low", "Low-High", or "Not significant".
-      - Adds the classification to a new column 'LISA_cluster'.
+      - Constructs a Queen contiguity spatial weights matrix on the full dataset.
+      - For each connected component with at least 3 tracts, computes Local Moran's I and assigns
+        clusters based on significance and the relationship between tract values and their spatial lag.
+      - For components with fewer than 3 tracts, assigns the cluster "Not significant".
+      - Computes Global Moran's I and its p-value on the largest connected component (with at least 3 tracts);
+        if no such component exists, returns NaN.
+      - Returns a Pandas Series of cluster labels for all tracts.
 
     Parameters
     ----------
@@ -174,69 +174,68 @@ def moran_global_local(
     -------
     Tuple[float, float, pd.Series]
         A tuple containing:
-         - Global Moran's I value (float),
-         - Global Moran's I p-value (float),
-         - A Pandas Series of cluster labels ("LISA_cluster") for each tract.
+         - Global Moran's I value (float) computed on the largest connected component (or NaN),
+         - Global Moran's I p-value (float) (or NaN),
+         - A Pandas Series of cluster labels ("LISA_cluster") for each tract in the input.
     """
-    # Build Queen contiguity spatial weights.
+    # Compute weights matrix on the full dataset (do not drop islands)
     w = libpysal.weights.Queen.from_dataframe(tracts_gdf, use_index=False)
     w.transform = "R"
     logger.info("Constructed Queen contiguity spatial weights.")
 
-    # Remove island tracts.
-    islands = w.islands
-    if islands:
-        logger.info(f"Removing island tracts with indices: {islands}")
-        tracts_gdf = tracts_gdf.drop(index=islands).copy()
-        w = libpysal.weights.Queen.from_dataframe(tracts_gdf, use_index=False)
-        w.transform = "R"
-        logger.info("Recomputed spatial weights after island removal.")
+    # Get connected component labels (indexed by tracts_gdf index)
+    comp_labels = pd.Series(w.component_labels, index=tracts_gdf.index)
+    clusters = pd.Series(index=tracts_gdf.index, dtype=object)
 
-    # Select the largest connected component.
-    components = w.component_labels
-    comp_series = pd.Series(components)
-    largest_component = comp_series.value_counts().idxmax()
-    logger.info(
-        f"Largest connected component label: {largest_component} with {comp_series.value_counts()[largest_component]} tracts.")
-    mask = comp_series == largest_component
-    # Use mask.values to convert the boolean Series to a NumPy array for iloc indexing.
-    tracts_largest = tracts_gdf.iloc[mask.values].copy()
-    w = libpysal.weights.Queen.from_dataframe(tracts_largest, use_index=False)
-    w.transform = "R"
-
-    # Extract the pollutant values.
-    y = tracts_largest[col].values
-
-    # Compute Global Moran's I.
-    global_moran = Moran(y, w)
-    logger.info(
-        f"Global Moran's I: {global_moran.I:.3f}, p-value: {global_moran.p_sim:.3f}")
-
-    # Compute Local Moran's I.
-    lisa = Moran_Local(y, w)
-    p_vals = lisa.p_sim
-    signif = p_vals < 0.05
-
-    # Classify tracts into LISA clusters.
-    clusters = []
-    for i, val in enumerate(y):
-        if not signif[i]:
-            clusters.append("Not significant")
+    # Process each connected component
+    for comp in comp_labels.unique():
+        comp_idx = comp_labels[comp_labels == comp].index
+        if len(comp_idx) >= 3:
+            comp_gdf = tracts_gdf.loc[comp_idx].copy()
+            y = comp_gdf[col].values
+            w_comp = libpysal.weights.Queen.from_dataframe(
+                comp_gdf, use_index=False)
+            w_comp.transform = "R"
+            moran_local = Moran_Local(y, w_comp)
+            comp_clusters = []
+            for i, val in enumerate(y):
+                if moran_local.p_sim[i] >= 0.05:
+                    comp_clusters.append("Not significant")
+                else:
+                    if val > y.mean() and moran_local.y_z[i] > 0:
+                        comp_clusters.append("High-High")
+                    elif val < y.mean() and moran_local.y_z[i] < 0:
+                        comp_clusters.append("Low-Low")
+                    elif val > y.mean() and moran_local.y_z[i] < 0:
+                        comp_clusters.append("High-Low")
+                    elif val < y.mean() and moran_local.y_z[i] > 0:
+                        comp_clusters.append("Low-High")
+                    else:
+                        comp_clusters.append("Not significant")
+            clusters.loc[comp_idx] = comp_clusters
         else:
-            if val > y.mean() and lisa.y_z[i] > 0:
-                clusters.append("High-High")
-            elif val < y.mean() and lisa.y_z[i] < 0:
-                clusters.append("Low-Low")
-            elif val > y.mean() and lisa.y_z[i] < 0:
-                clusters.append("High-Low")
-            elif val < y.mean() and lisa.y_z[i] > 0:
-                clusters.append("Low-High")
-            else:
-                clusters.append("Not significant")
-    tracts_largest["LISA_cluster"] = clusters
-    logger.info("Assigned LISA cluster classifications to tracts.")
+            # For components with fewer than 3 tracts, assign "Not significant"
+            clusters.loc[comp_idx] = "Not significant"
 
-    return global_moran.I, global_moran.p_sim, pd.Series(clusters, index=tracts_largest.index)
+    # Compute Global Moran's I on the largest connected component with at least 3 tracts.
+    valid_comps = [comp for comp in comp_labels.unique() if (
+        comp_labels == comp).sum() >= 3]
+    if valid_comps:
+        largest_comp = max(valid_comps, key=lambda c: (comp_labels == c).sum())
+        comp_idx = comp_labels[comp_labels == largest_comp].index
+        comp_gdf = tracts_gdf.loc[comp_idx].copy()
+        y = comp_gdf[col].values
+        w_comp = libpysal.weights.Queen.from_dataframe(
+            comp_gdf, use_index=False)
+        w_comp.transform = "R"
+        moran_obj = Moran(y, w_comp)
+        global_I = moran_obj.I
+        p_val = moran_obj.p_sim
+    else:
+        global_I = np.nan
+        p_val = np.nan
+
+    return global_I, p_val, clusters
 
 
 def compute_geometry_stats(tracts_gdf: gpd.GeoDataFrame) -> Dict[str, float]:
